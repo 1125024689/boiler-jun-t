@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.boilerserver.mapper.OrderMapper">
+    <resultMap id="OrderResultMap" type="org.example.boilerpojo.OrderEntity">
+        <id property="orderId" column="orderId"/>
+        <result property="transactionId" column="transactionId"/>
+        <result property="orderStatus" column="orderStatus"/>
+        <result property="createTime" column="createTime"/>
+        <result property="updateTime" column="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="org.example.boilerpojo.OrderEntity">
+        insert into `order` (
+            orderId,
+            transactionId,
+            orderStatus,
+            createTime,
+            updateTime
+        )
+        values (
+            #{orderId},
+            #{transactionId},
+            #{orderStatus},
+            #{createTime},
+            #{updateTime}
+        )
+    </insert>
+
+    <update id="update" parameterType="org.example.boilerpojo.OrderEntity">
+        update `order`
+        <set>
+            <if test="orderStatus != null and orderStatus != ''">orderStatus = #{orderStatus},</if>
+            <if test="updateTime != null">updateTime = #{updateTime},</if>
+        </set>
+        where orderId = #{orderId}
+    </update>
+
+    <select id="getByOrderId" resultMap="OrderResultMap">
+        select * from `order` where orderId = #{orderId}
+    </select>
+
+    <select id="getByTransactionId" resultMap="OrderResultMap">
+        select * from `order` where transactionId = #{transactionId} limit 1
+    </select>
+</mapper>
