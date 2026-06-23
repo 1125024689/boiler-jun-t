@@ -13,6 +13,12 @@ public class UserEntity{
     private String email;
     private String userType;
     private Integer creditScore;
+    // 信用分组件
+    private Integer depositPaymentScore;
+    private Integer infoCompletenessScore;
+    private Integer mutualRatingScore;
+    private Integer transactionBehaviorScore;
+    private Integer communityConductScore;
     private LocalDate registrationDate;
     private String verificationStatus;
     private LocalDateTime createTime;

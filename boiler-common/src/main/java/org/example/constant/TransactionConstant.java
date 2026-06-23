@@ -7,6 +7,7 @@ public final class TransactionConstant {
 
     // 交易状态 transactionStatus
     public static final String TRANSACTION_STATUS_PENDING = "PENDING";
+    public static final String TRANSACTION_STATUS_ONGOING = "ONGOING";
     public static final String TRANSACTION_STATUS_COMPLETED = "COMPLETED";
     public static final String TRANSACTION_STATUS_CANCELLED = "CANCELLED";
 
