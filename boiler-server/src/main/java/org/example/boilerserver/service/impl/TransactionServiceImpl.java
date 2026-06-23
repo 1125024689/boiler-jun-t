@@ -1,7 +1,6 @@
 package org.example.boilerserver.service.impl;
 
 import org.example.boilerpojo.BookPostDTO;
-import org.example.boilerpojo.BuyerEntity;
 import org.example.boilerpojo.CancelBookingDTO;
 import org.example.boilerpojo.CompleteTransactionDTO;
 import org.example.boilerpojo.OrderEntity;
@@ -11,13 +10,13 @@ import org.example.boilerpojo.TransactionEntity;
 import org.example.boilerpojo.TransactionVO;
 import org.example.boilerpojo.UpdateLogisticsDTO;
 import org.example.boilerpojo.UserEntity;
-import org.example.boilerserver.mapper.BuyerMapper;
 import org.example.boilerserver.mapper.OrderMapper;
 import org.example.boilerserver.mapper.PostMapper;
 import org.example.boilerserver.mapper.SellerMapper;
 import org.example.boilerserver.mapper.TransactionMapper;
 import org.example.boilerserver.mapper.UserMapper;
 import org.example.boilerserver.service.TransactionService;
+import org.example.boilerserver.util.CreditScoreUtils;
 import org.example.constant.TransactionConstant;
 import org.example.constant.UserConstant;
 import org.springframework.stereotype.Service;
@@ -37,20 +36,17 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionMapper transactionMapper;
     private final OrderMapper orderMapper;
     private final PostMapper postMapper;
-    private final BuyerMapper buyerMapper;
     private final SellerMapper sellerMapper;
     private final UserMapper userMapper;
 
     public TransactionServiceImpl(TransactionMapper transactionMapper,
                                   OrderMapper orderMapper,
                                   PostMapper postMapper,
-                                  BuyerMapper buyerMapper,
                                   SellerMapper sellerMapper,
                                   UserMapper userMapper) {
         this.transactionMapper = transactionMapper;
         this.orderMapper = orderMapper;
         this.postMapper = postMapper;
-        this.buyerMapper = buyerMapper;
         this.sellerMapper = sellerMapper;
         this.userMapper = userMapper;
     }
@@ -65,14 +61,10 @@ public class TransactionServiceImpl implements TransactionService {
         // 校验买家存在且为买家类型
         UserEntity buyerUser = userMapper.getByUserId(dto.getBuyerId());
         if (buyerUser == null) {
-            throw new IllegalArgumentException("用户不存在");
+            throw new IllegalArgumentException("买家不存在");
         }
         if (!UserConstant.USER_TYPE_BUYER.equalsIgnoreCase(buyerUser.getUserType())) {
             throw new IllegalArgumentException("当前用户不是买家");
-        }
-        BuyerEntity buyerEntity = buyerMapper.getByBuyerId(dto.getBuyerId());
-        if (buyerEntity == null) {
-            throw new IllegalArgumentException("买家信息不存在");
         }
 
         // 校验帖子存在且为上架状态
@@ -138,7 +130,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         // 校验当前状态为已预约
         if (!TransactionConstant.BOOKING_STATUS_BOOKED.equals(transactionEntity.getBookingStatus())) {
-            throw new IllegalArgumentException("当前交易状态不允许取消预约");
+            throw new IllegalArgumentException("当前预约状态不允许取消预约");
         }
 
         // 更新交易状态
@@ -179,8 +171,9 @@ public class TransactionServiceImpl implements TransactionService {
             throw new IllegalArgumentException("只有该交易的卖家可以完成交易");
         }
 
-        // 校验交易状态为待交易
-        if (!TransactionConstant.TRANSACTION_STATUS_PENDING.equals(transactionEntity.getTransactionStatus())) {
+        // 校验交易状态为待交易或交易中
+        if (!TransactionConstant.TRANSACTION_STATUS_PENDING.equals(transactionEntity.getTransactionStatus())
+                && !TransactionConstant.TRANSACTION_STATUS_ONGOING.equals(transactionEntity.getTransactionStatus())) {
             throw new IllegalArgumentException("当前交易状态不允许完成交易");
         }
 
@@ -213,31 +206,17 @@ public class TransactionServiceImpl implements TransactionService {
             sellerEntity.setCompletedTransactionCount(completedCount + 1);
             sellerMapper.update(sellerEntity);
 
-            // 更新卖家信用分 +2
+            // 更新卖家交易行为信用分 +2（上限20）
             UserEntity sellerUser = userMapper.getByUserId(dto.getSellerId());
             if (sellerUser != null) {
-                int currentCredit = sellerUser.getCreditScore() == null
-                        ? UserConstant.DEFAULT_CREDIT_SCORE : sellerUser.getCreditScore();
-                int newCredit = Math.min(currentCredit + TransactionConstant.CREDIT_SCORE_PER_TRANSACTION,
-                        UserConstant.MAX_CREDIT_SCORE);
-                sellerUser.setCreditScore(newCredit);
-                userMapper.update(sellerUser);
-                log.info("【信用分更新】卖家: sellerId={}, 原信用分={}, 新信用分={}, 交易ID={}",
-                        dto.getSellerId(), currentCredit, newCredit, dto.getTransactionId());
+                updateTransactionBehaviorScore(sellerUser, dto.getSellerId(), "卖家", dto.getTransactionId());
             }
         }
 
-        // 更新买家信用分 +2（需求文档：交易行为 - 每笔成功交易 +2 分，买卖双方均适用）
+        // 更新买家交易行为信用分 +2（上限20）
         UserEntity buyerUser = userMapper.getByUserId(transactionEntity.getBuyerId());
         if (buyerUser != null) {
-            int currentCredit = buyerUser.getCreditScore() == null
-                    ? UserConstant.DEFAULT_CREDIT_SCORE : buyerUser.getCreditScore();
-            int newCredit = Math.min(currentCredit + TransactionConstant.CREDIT_SCORE_PER_TRANSACTION,
-                    UserConstant.MAX_CREDIT_SCORE);
-            buyerUser.setCreditScore(newCredit);
-            userMapper.update(buyerUser);
-            log.info("【信用分更新】买家: buyerId={}, 原信用分={}, 新信用分={}, 交易ID={}",
-                    transactionEntity.getBuyerId(), currentCredit, newCredit, dto.getTransactionId());
+            updateTransactionBehaviorScore(buyerUser, transactionEntity.getBuyerId(), "买家", dto.getTransactionId());
         }
 
         PostEntity postEntity = StringUtils.hasText(transactionEntity.getPostId())
@@ -262,12 +241,22 @@ public class TransactionServiceImpl implements TransactionService {
             throw new IllegalArgumentException("只有该交易的卖家可以更新物流信息");
         }
 
-        // 校验交易未被取消
+        // 校验交易未被取消或已完成
         if (TransactionConstant.TRANSACTION_STATUS_CANCELLED.equals(transactionEntity.getTransactionStatus())) {
             throw new IllegalArgumentException("已取消的交易不能更新物流信息");
         }
+        if (TransactionConstant.TRANSACTION_STATUS_COMPLETED.equals(transactionEntity.getTransactionStatus())) {
+            throw new IllegalArgumentException("已完成的交易不能更新物流信息");
+        }
 
+        // 更新物流信息，若交易为PENDING则流转至ONGOING
+        String oldStatus = transactionEntity.getTransactionStatus();
         transactionEntity.setLogisticsInfo(dto.getLogisticsInfo().trim());
+        if (TransactionConstant.TRANSACTION_STATUS_PENDING.equals(oldStatus)) {
+            transactionEntity.setTransactionStatus(TransactionConstant.TRANSACTION_STATUS_ONGOING);
+            log.info("【交易状态流转】更新物流信息: transactionId={}, 原状态={}, 新状态={}",
+                    dto.getTransactionId(), oldStatus, TransactionConstant.TRANSACTION_STATUS_ONGOING);
+        }
         transactionMapper.update(transactionEntity);
 
         OrderEntity orderEntity = orderMapper.getByTransactionId(dto.getTransactionId());
@@ -322,6 +311,23 @@ public class TransactionServiceImpl implements TransactionService {
             throw new IllegalArgumentException("交易不存在");
         }
         return transactionEntity;
+    }
+
+    private void updateTransactionBehaviorScore(UserEntity user, String userId, String role, String transactionId) {
+        int currentBehaviorScore = user.getTransactionBehaviorScore() == null
+                ? UserConstant.INITIAL_TRANSACTION_BEHAVIOR_SCORE : user.getTransactionBehaviorScore();
+        int newBehaviorScore = Math.min(
+                currentBehaviorScore + TransactionConstant.CREDIT_SCORE_PER_TRANSACTION,
+                UserConstant.MAX_TRANSACTION_BEHAVIOR_SCORE);
+        user.setTransactionBehaviorScore(newBehaviorScore);
+
+        // 重新计算总信用分 = 各组件之和
+        int totalCredit = CreditScoreUtils.calculateTotalCreditScore(user);
+        int oldTotalCredit = user.getCreditScore() == null ? 0 : user.getCreditScore();
+        user.setCreditScore(totalCredit);
+        userMapper.update(user);
+        log.info("【信用分更新】{}: userId={}, 交易行为分 {}→{}, 总信用分 {}→{}, 交易ID={}",
+                role, userId, currentBehaviorScore, newBehaviorScore, oldTotalCredit, totalCredit, transactionId);
     }
 
     private TransactionVO buildTransactionVO(TransactionEntity transactionEntity, OrderEntity orderEntity, PostEntity postEntity) {
