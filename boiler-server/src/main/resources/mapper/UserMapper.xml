@@ -11,6 +11,11 @@
         <result property="email" column="email"/>
         <result property="userType" column="userType"/>
         <result property="creditScore" column="creditScore"/>
+        <result property="depositPaymentScore" column="depositPaymentScore"/>
+        <result property="infoCompletenessScore" column="infoCompletenessScore"/>
+        <result property="mutualRatingScore" column="mutualRatingScore"/>
+        <result property="transactionBehaviorScore" column="transactionBehaviorScore"/>
+        <result property="communityConductScore" column="communityConductScore"/>
         <result property="registrationDate" column="registrationDate"/>
         <result property="verificationStatus" column="verificationStatus"/>
     </resultMap>
@@ -72,6 +77,11 @@
             email,
             userType,
             creditScore,
+            depositPaymentScore,
+            infoCompletenessScore,
+            mutualRatingScore,
+            transactionBehaviorScore,
+            communityConductScore,
             registrationDate,
             verificationStatus
         )
@@ -83,6 +93,11 @@
             #{email},
             #{userType},
             #{creditScore},
+            #{depositPaymentScore},
+            #{infoCompletenessScore},
+            #{mutualRatingScore},
+            #{transactionBehaviorScore},
+            #{communityConductScore},
             #{registrationDate},
             #{verificationStatus}
         )
@@ -95,6 +110,11 @@
             <if test="email != null">email = #{email},</if>
             <if test="password != null and password != ''">password = #{password},</if>
             <if test="creditScore != null">creditScore = #{creditScore},</if>
+            <if test="depositPaymentScore != null">depositPaymentScore = #{depositPaymentScore},</if>
+            <if test="infoCompletenessScore != null">infoCompletenessScore = #{infoCompletenessScore},</if>
+            <if test="mutualRatingScore != null">mutualRatingScore = #{mutualRatingScore},</if>
+            <if test="transactionBehaviorScore != null">transactionBehaviorScore = #{transactionBehaviorScore},</if>
+            <if test="communityConductScore != null">communityConductScore = #{communityConductScore},</if>
             <if test="verificationStatus != null and verificationStatus != ''">verificationStatus = #{verificationStatus},</if>
         </set>
         where userId = #{userId}

@@ -228,7 +228,8 @@ Content-Type: application/json
 - 只有该交易的卖家可以完成交易
 - 交易状态必须为 `PENDING` 或 `ONGOING`
 - 完成后帖子状态变为 `SOLD`
-- 卖家信用分 +2（上限100）
+- 买卖双方的交易行为信用分各 +2（组件上限20）
+- 总信用分 = 各组件之和（上限100）
 - 卖家完成交易数 +1
 
 ### 错误场景
@@ -287,6 +288,8 @@ Content-Type: application/json
 
 - 只有该交易的卖家可以更新物流信息
 - 物流信息不能为空
+- 已取消的交易不能更新物流信息
+- 若交易状态为 `PENDING`，更新物流信息后状态流转为 `ONGOING`
 
 ### 错误场景
 
@@ -449,6 +452,14 @@ PENDING（待交易）
       │
       ├─ 买家取消预约 ──> CANCELLED（已取消）
       │
+      ├─ 卖家更新物流 ──> ONGOING（交易中）
+      │
+      └─ 卖家完成交易 ──> COMPLETED（已完成）
+
+ONGOING（交易中）
+      │
+      ├─ 买家取消预约 ──> CANCELLED（已取消）
+      │
       └─ 卖家完成交易 ──> COMPLETED（已完成）
 ```
 
@@ -499,4 +510,335 @@ curl -X GET "$BASE_URL/transaction/buyer/cb967d33836948b6895c5b8d693e3f33"
 
 # 7. 卖家查询交易列表
 curl -X GET "$BASE_URL/transaction/seller/046f8a5da7dc41e08c941994b8e10550"
+```
+
+---
+
+# Review 模块接口文档
+
+## 评分规则
+
+| 评分 | 等级 | 信用分变化 |
+|------|------|-----------|
+| 4-5 星 | 好评 | +3 |
+| 1-2 星 | 差评 | -5 |
+
+- 评分范围：1-5 分
+- 信用分组件：互评信用分上限30，下限0
+- 总信用分 = 各组件之和（上限100）
+- 买家评价卖家后自动更新卖家好评率
+
+## 信用分组件
+
+| 组件 | 字段 | 初始值 | 上限 |
+|------|------|--------|------|
+| 押金支付 | depositPaymentScore | 0 | 20 |
+| 信息完整度 | infoCompletenessScore | 0 | 20 |
+| 互评信用 | mutualRatingScore | 15 | 30 |
+| 交易行为 | transactionBehaviorScore | 10 | 20 |
+| 社区行为 | communityConductScore | 10 | 10 |
+
+---
+
+## 8. 创建评价（双向）
+
+### 接口说明
+
+买家或卖家对已完成的交易进行评价。买家评价卖家，卖家评价买家，双方互评。
+
+### 请求
+
+```http
+POST /review/create
+Content-Type: application/json
+```
+
+```json
+{
+  "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+  "reviewerType": "BUYER",
+  "postId": "post001",
+  "orderId": "d7b6929800c6481597c8f40992afc2f7",
+  "rating": 5,
+  "content": "锅炉质量很好，卖家服务态度不错"
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `reviewerId` | String | 是 | 评价人用户ID |
+| `reviewerType` | String | 是 | 评价人类型：`BUYER` 或 `SELLER` |
+| `postId` | String | 是 | 帖子ID |
+| `orderId` | String | 是 | 订单ID |
+| `rating` | Integer | 是 | 评分（1-5） |
+| `content` | String | 否 | 评价内容 |
+
+### 响应
+
+```json
+{
+  "code": 1,
+  "msg": null,
+  "data": {
+    "reviewId": "82b339a50ce84d6dbf96501e6f767cee",
+    "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+    "reviewerName": "test_buyer_001",
+    "reviewerType": "BUYER",
+    "revieweeId": "046f8a5da7dc41e08c941994b8e10550",
+    "revieweeName": "test_seller_001",
+    "postId": "post001",
+    "postTitle": "二手10吨燃气蒸汽锅炉",
+    "orderId": "d7b6929800c6481597c8f40992afc2f7",
+    "rating": 5,
+    "content": "锅炉质量很好，卖家服务态度不错",
+    "reviewTime": "2026-06-21"
+  }
+}
+```
+
+### 业务规则
+
+- 评价人类型必须与用户类型匹配
+- 帖子必须存在
+- 订单必须为 `COMPLETED` 状态
+- 买家评价时：被评价方为卖家，需校验评价人是该订单买家
+- 卖家评价时：被评价方为买家，需校验评价人是该订单卖家
+- 同一评价人不能对同一订单重复评价
+- 评分必须在 1-5 之间
+- 好评(4-5星)：被评价人互评信用分 +3（上限30）
+- 差评(1-2星)：被评价人互评信用分 -5（下限0）
+- 买家评价卖家后自动更新卖家好评率
+
+### 错误场景
+
+| 场景 | 返回 msg |
+|------|---------|
+| 评价人ID、类型、帖子ID、订单ID或评分为空 | `评价人ID、评价人类型、帖子ID、订单ID和评分不能为空` |
+| 评分超出范围 | `评分必须在1-5之间` |
+| 用户不存在 | `用户不存在` |
+| 评价人类型与用户类型不匹配 | `评价人类型与用户类型不匹配` |
+| 帖子不存在 | `帖子不存在` |
+| 订单不存在 | `订单不存在` |
+| 订单未完成 | `订单未完成，不能评价` |
+| 交易不存在 | `交易不存在` |
+| 非该订单买家/卖家 | `只有该订单的买家/卖家可以评价` |
+| 不支持的评价人类型 | `不支持的评价人类型: xxx` |
+| 重复评价 | `您已对此订单进行过评价` |
+
+---
+
+## 9. 查询评价详情
+
+### 接口说明
+
+根据评价ID查询评价详情。
+
+### 请求
+
+```http
+GET /review/{reviewId}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `reviewId` | String | 是 | 评价ID（路径参数） |
+
+### 响应
+
+```json
+{
+  "code": 1,
+  "msg": null,
+  "data": {
+    "reviewId": "82b339a50ce84d6dbf96501e6f767cee",
+    "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+    "reviewerName": "test_buyer_001",
+    "reviewerType": "BUYER",
+    "revieweeId": "046f8a5da7dc41e08c941994b8e10550",
+    "revieweeName": "test_seller_001",
+    "postId": "post001",
+    "postTitle": "二手10吨燃气蒸汽锅炉",
+    "orderId": "d7b6929800c6481597c8f40992afc2f7",
+    "rating": 5,
+    "content": "锅炉质量很好，卖家服务态度不错",
+    "reviewTime": "2026-06-21"
+  }
+}
+```
+
+### 错误场景
+
+| 场景 | 返回 msg |
+|------|---------|
+| 评价不存在 | `评价不存在` |
+
+---
+
+## 10. 查询帖子评价列表
+
+### 接口说明
+
+查询某个帖子的所有评价，按评价时间倒序排列。
+
+### 请求
+
+```http
+GET /review/post/{postId}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `postId` | String | 是 | 帖子ID（路径参数） |
+
+### 响应
+
+```json
+{
+  "code": 1,
+  "msg": null,
+  "data": [
+    {
+      "reviewId": "82b339a50ce84d6dbf96501e6f767cee",
+      "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+      "reviewerName": "test_buyer_001",
+      "reviewerType": "BUYER",
+      "revieweeId": "046f8a5da7dc41e08c941994b8e10550",
+      "revieweeName": "test_seller_001",
+      "postId": "post001",
+      "postTitle": "二手10吨燃气蒸汽锅炉",
+      "orderId": "d7b6929800c6481597c8f40992afc2f7",
+      "rating": 5,
+      "content": "锅炉质量很好，卖家服务态度不错",
+      "reviewTime": "2026-06-21"
+    }
+  ]
+}
+```
+
+---
+
+## 11. 查询评价人发表的评价列表
+
+### 接口说明
+
+查询某个评价人发表的所有评价，按评价时间倒序排列。
+
+### 请求
+
+```http
+GET /review/reviewer/{reviewerId}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `reviewerId` | String | 是 | 评价人用户ID（路径参数） |
+
+### 响应
+
+```json
+{
+  "code": 1,
+  "msg": null,
+  "data": [
+    {
+      "reviewId": "82b339a50ce84d6dbf96501e6f767cee",
+      "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+      "reviewerName": "test_buyer_001",
+      "reviewerType": "BUYER",
+      "revieweeId": "046f8a5da7dc41e08c941994b8e10550",
+      "revieweeName": "test_seller_001",
+      "postId": "post001",
+      "postTitle": "二手10吨燃气蒸汽锅炉",
+      "orderId": "d7b6929800c6481597c8f40992afc2f7",
+      "rating": 5,
+      "content": "锅炉质量很好，卖家服务态度不错",
+      "reviewTime": "2026-06-21"
+    }
+  ]
+}
+```
+
+---
+
+## 12. 查询被评价人收到的评价列表
+
+### 接口说明
+
+查询某个被评价人收到的所有评价，按评价时间倒序排列。可用于卖家查看自己收到的评价。
+
+### 请求
+
+```http
+GET /review/reviewee/{revieweeId}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `revieweeId` | String | 是 | 被评价人用户ID（路径参数） |
+
+### 响应
+
+```json
+{
+  "code": 1,
+  "msg": null,
+  "data": [
+    {
+      "reviewId": "82b339a50ce84d6dbf96501e6f767cee",
+      "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+      "reviewerName": "test_buyer_001",
+      "reviewerType": "BUYER",
+      "revieweeId": "046f8a5da7dc41e08c941994b8e10550",
+      "revieweeName": "test_seller_001",
+      "postId": "post001",
+      "postTitle": "二手10吨燃气蒸汽锅炉",
+      "orderId": "d7b6929800c6481597c8f40992afc2f7",
+      "rating": 5,
+      "content": "锅炉质量很好，卖家服务态度不错",
+      "reviewTime": "2026-06-21"
+    }
+  ]
+}
+```
+
+---
+
+## Review 模块 curl 测试命令
+
+```bash
+# 8. 创建评价（买家评价卖家）
+curl -X POST "$BASE_URL/review/create" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reviewerId": "cb967d33836948b6895c5b8d693e3f33",
+    "reviewerType": "BUYER",
+    "postId": "post001",
+    "orderId": "d7b6929800c6481597c8f40992afc2f7",
+    "rating": 5,
+    "content": "锅炉质量很好，卖家服务态度不错"
+  }'
+
+# 8b. 创建评价（卖家评价买家）
+curl -X POST "$BASE_URL/review/create" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reviewerId": "046f8a5da7dc41e08c941994b8e10550",
+    "reviewerType": "SELLER",
+    "postId": "post001",
+    "orderId": "d7b6929800c6481597c8f40992afc2f7",
+    "rating": 4,
+    "content": "买家付款及时，交易顺畅"
+  }'
+
+# 9. 查询评价详情
+curl -X GET "$BASE_URL/review/82b339a50ce84d6dbf96501e6f767cee"
+
+# 10. 查询帖子评价列表
+curl -X GET "$BASE_URL/review/post/post001"
+
+# 11. 查询评价人发表的评价列表
+curl -X GET "$BASE_URL/review/reviewer/cb967d33836948b6895c5b8d693e3f33"
+
+# 12. 查询被评价人收到的评价列表（卖家查看收到的评价）
+curl -X GET "$BASE_URL/review/reviewee/046f8a5da7dc41e08c941994b8e10550"
 ```

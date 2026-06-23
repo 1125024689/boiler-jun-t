@@ -16,6 +16,11 @@ CREATE TABLE `user` (
   email VARCHAR(255),
   userType VARCHAR(50),
   creditScore INT,
+  depositPaymentScore INT DEFAULT 0,
+  infoCompletenessScore INT DEFAULT 0,
+  mutualRatingScore INT DEFAULT 15,
+  transactionBehaviorScore INT DEFAULT 10,
+  communityConductScore INT DEFAULT 10,
   registrationDate DATE,
   verificationStatus VARCHAR(50)
 );
@@ -111,7 +116,9 @@ CREATE TABLE `transaction` (
 -- 评论表
 CREATE TABLE `review` (
   reviewId VARCHAR(255) PRIMARY KEY,
-  buyerId VARCHAR(255) NOT NULL,
+  reviewerId VARCHAR(255) NOT NULL,
+  revieweeId VARCHAR(255) NOT NULL,
+  reviewerType VARCHAR(50) NOT NULL,
   postId VARCHAR(255) NOT NULL,
   orderId VARCHAR(255) NOT NULL,
   rating INT,
